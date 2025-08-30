@@ -1,0 +1,2154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VG-AnythingEngine</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked@9.1.6/marked.min.js"></script>
+    <script>
+        // Dark mode detection
+        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+            document.documentElement.classList.add('dark');
+        }
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', event => {
+            if (event.matches) {
+                document.documentElement.classList.add('dark');
+            } else {
+                document.documentElement.classList.remove('dark');
+            }
+        });
+
+        // Consolidated Model List
+        const MODEL_LIST = [
+            'Claude-Opus-4-Reasoning',
+            'Claude-Opus-4-Search', 
+            'Claude-Opus-4.1',
+            'Claude-Sonnet-4-Reasoning',
+            'Claude-Sonnet-4-Search',
+            'Claude-Sonnet-4',
+            'DeepSeek-R1',
+            'DeepSeek-V3',
+            'Deepseek-V3-FW',
+            'Gemini-2.5-Flash',
+            'Gemini-2.5-Pro',
+            'GPT-4.1',
+            'GPT-5',
+            'GPT-5-Chat',
+            'GPT-Researcher',
+            'Grok-4',
+            'Kimi-K2-Instruct-N',
+            'Kimi-K2-T',
+            'o1',
+            'o3',
+            'o3-pro',
+            'Perplexity-Sonar-Pro',
+            'Perplexity-Sonar-Rsn-Pro',
+            'Qwen3-235B-2507-FW'
+        ];
+
+        // Storage for bank data
+        let bankData = {
+            keys: [],
+            input: [],
+            prompts: [], // Changed from 'execution' to 'prompts'
+            engineName: '' // Store engine name for file naming
+        };
+
+        // Storage for bot-specific custom prompts
+        let botSpecificPrompts = {
+            1: null, 2: null, 3: null, 4: null, 5: null,
+            6: null, 7: null, 8: null, 9: null, 10: null
+        };
+
+        // Populate model dropdowns
+        function populateModelDropdowns() {
+            // Define default models for each component
+            const defaultModels = {
+                'magicBoxModel': 'o3',
+                'autocompleteModel': 'GPT-4.1',
+                'bot1Model': 'GPT-5-Chat',
+                'bot2Model': 'Claude-Sonnet-4-Search',
+                'bot3Model': 'Kimi-K2-T',
+                'bot4Model': 'Gemini-2.5-Flash',
+                'bot5Model': 'DeepSeek-V3',
+                'bot6Model': 'Grok-4',
+                'bot7Model': 'Claude-Sonnet-4',
+                'bot8Model': 'GPT-4.1',
+                'bot9Model': 'Gemini-2.5-Pro',
+                'bot10Model': 'DeepSeek-R1'
+            };
+
+            const selectors = ['magicBoxModel', 'autocompleteModel'];
+            // Add all bot model selectors (1-10)
+            for (let i = 1; i <= 10; i++) {
+                selectors.push(`bot${i}Model`);
+            }
+            
+            selectors.forEach(selectorId => {
+                const select = document.getElementById(selectorId);
+                if (select) {
+                    select.innerHTML = '';
+                    const defaultModel = defaultModels[selectorId] || 'Claude-Sonnet-4';
+                    
+                    MODEL_LIST.forEach(model => {
+                        const option = document.createElement('option');
+                        option.value = model;
+                        option.textContent = model;
+                        if (model === defaultModel) {
+                            option.selected = true;
+                        }
+                        select.appendChild(option);
+                    });
+                }
+            });
+        }
+
+        // Update bot visibility based on bot count
+        function updateBotVisibility(botCount) {
+            for (let i = 1; i <= 10; i++) {
+                const botContainer = document.getElementById(`bot${i}Container`);
+                if (botContainer) {
+                    if (i <= botCount) {
+                        botContainer.classList.remove('hidden');
+                    } else {
+                        botContainer.classList.add('hidden');
+                    }
+                }
+            }
+        }
+
+        // File reading helper function
+        async function readFileContent(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = (e) => resolve(e.target.result);
+                reader.onerror = (e) => reject(e);
+                reader.readAsText(file);
+            });
+        }
+
+        // Update processing log
+        function updateProcessingLog(message, isFullResponse = false, responseId = null) {
+            const logContent = document.getElementById('processingLogContent');
+            const timestamp = new Date().toLocaleTimeString();
+            
+            let logEntry;
+            if (isFullResponse) {
+                if (responseId && document.getElementById(responseId)) {
+                    // Update existing response entry
+                    const existingContent = document.getElementById(responseId);
+                    if (existingContent) {
+                        existingContent.textContent = message.content;
+                    }
+                    return responseId; // Return the same ID for continued updates
+                } else {
+                    // Create new response entry
+                    const newResponseId = responseId || 'response_' + Date.now();
+                    logEntry = `
+                        <div class="text-xs mb-3 border-l-2 border-blue-300 dark:border-blue-600 pl-3" id="log_${newResponseId}">
+                            <div class="text-gray-600 dark:text-gray-400 mb-1 flex items-center justify-between">
+                                <span>[${timestamp}] ${message.title}</span>
+                                <button onclick="downloadLogEntry('${newResponseId}')" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 ml-2" title="Download">💾</button>
+                            </div>
+                            <div class="bg-gray-50 dark:bg-gray-800 p-2 rounded text-xs">
+                                <button onclick="toggleLogResponse('${newResponseId}')" class="text-blue-600 dark:text-blue-400 hover:underline mb-1">
+                                    📄 Show/Hide Full Response
+                                </button>
+                                <div id="${newResponseId}" class="hidden max-h-40 overflow-y-auto whitespace-pre-wrap text-gray-700 dark:text-gray-300">${message.content}</div>
+                            </div>
+                        </div>
+                    `;
+                    
+                    if (logContent.innerHTML.includes('No processing log yet...')) {
+                        logContent.innerHTML = logEntry;
+                    } else {
+                        logContent.innerHTML += logEntry;
+                    }
+                    
+                    // Auto-scroll to bottom
+                    logContent.scrollTop = logContent.scrollHeight;
+                    return newResponseId;
+                }
+            } else {
+                logEntry = `<div class="text-xs text-gray-600 dark:text-gray-400 mb-2">[${timestamp}] ${message}</div>`;
+                
+                if (logContent.innerHTML.includes('No processing log yet...')) {
+                    logContent.innerHTML = logEntry;
+                } else {
+                    logContent.innerHTML += logEntry;
+                }
+                
+                // Auto-scroll to bottom
+                logContent.scrollTop = logContent.scrollHeight;
+            }
+        }
+
+        // Toggle log response visibility
+        function toggleLogResponse(responseId) {
+            const element = document.getElementById(responseId);
+            if (element) {
+                element.classList.toggle('hidden');
+            }
+        }
+
+        // Download individual log entry
+        function downloadLogEntry(responseId) {
+            const logEntry = document.getElementById(responseId);
+            const logContainer = document.getElementById(`log_${responseId}`);
+            
+            if (logEntry && logContainer) {
+                const title = logContainer.querySelector('.text-gray-600')?.textContent.trim() || 'Log Entry';
+                const content = logEntry.textContent;
+                const timestamp = generateTimestamp();
+                const engineName = bankData.engineName || 'UnknownEngine';
+                
+                let downloadContent = `# ${title}\n\n`;
+                downloadContent += `**Generated:** ${new Date().toLocaleString()}\n`;
+                downloadContent += `**Engine:** ${engineName}\n\n`;
+                downloadContent += `## Content\n\n${content}\n`;
+                
+                const blob = new Blob([downloadContent], { type: 'text/markdown' });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = `${engineName}_LogEntry_${timestamp}.md`;
+                link.click();
+                URL.revokeObjectURL(url);
+                
+                updateProcessingLog(`Log entry downloaded: ${title}`);
+            }
+        }
+
+        // Download state as file
+        function downloadState() {
+            const currentState = {
+                bankData: bankData,
+                botCount: parseInt(document.getElementById('botCountSelector')?.value || 6),
+                currentKey: document.getElementById('currentKey')?.value || '',
+                currentInput: document.getElementById('currentInput')?.value || '',
+                magicBoxInput: document.getElementById('magicBoxInput')?.value || '',
+                autocompleteInstructions: document.getElementById('autocompleteInstructions')?.value || '',
+                selectedModels: {},
+                botOutputs: {},
+                processingLog: document.getElementById('processingLogContent')?.innerHTML || ''
+            };
+            
+            // Save selected models for each component
+            const selectors = ['magicBoxModel', 'autocompleteModel'];
+            for (let i = 1; i <= 10; i++) {
+                selectors.push(`bot${i}Model`);
+                // Save bot outputs
+                const output = document.getElementById(`bot${i}Output`);
+                if (output) {
+                    currentState.botOutputs[`bot${i}`] = output.innerHTML;
+                }
+            }
+            selectors.forEach(id => {
+                const select = document.getElementById(id);
+                if (select) {
+                    currentState.selectedModels[id] = select.value;
+                }
+            });
+            
+            const timestamp = generateTimestamp();
+            const engineName = bankData.engineName || 'UnknownEngine';
+            const stateString = JSON.stringify(currentState, null, 2);
+            
+            const blob = new Blob([stateString], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `${engineName}_State_${timestamp}.json`;
+            link.click();
+            URL.revokeObjectURL(url);
+            
+            updateProcessingLog(`State downloaded: ${engineName}_State_${timestamp}.json`);
+            showAlert('State downloaded successfully!');
+        }
+
+        // Execute Magic Box (Genie)
+        async function executeMagicBox() {
+            const input = document.getElementById('magicBoxInput').value;
+            const fileInput = document.getElementById('magicBoxFile');
+            const modelSelector = document.getElementById('magicBoxModel');
+            const status = document.getElementById('magicBoxStatus');
+            const spinner = document.getElementById('executeMagicBoxSpinner');
+            const text = document.getElementById('executeMagicBoxText');
+            const botCountSelector = document.getElementById('botCountSelector');
+
+            if (!input.trim() && !fileInput.files[0]) {
+                status.textContent = "Please provide text input or upload a file";
+                return;
+            }
+
+            // Set loading state
+            spinner.classList.remove('hidden');
+            text.classList.add('invisible');
+            status.textContent = "Processing with Magic Box...";
+
+            try {
+                updateProcessingLog("Starting Magic Box processing...");
+                
+                let promptText = input.trim();
+                
+                // Handle file attachment
+                if (fileInput.files[0]) {
+                    updateProcessingLog(`Reading file: ${fileInput.files[0].name}`);
+                    const fileContent = await readFileContent(fileInput.files[0]);
+                    promptText = promptText ? `${promptText}\n\nFile Content:\n${fileContent}` : fileContent;
+                }
+
+                const selectedModel = modelSelector.value;
+                const botCount = parseInt(botCountSelector.value);
+                
+                // Updated Genie prompt incorporating Canvas limitations
+                const magicBoxPrompt = `ROLE: Anything Engine Architect
+SYSTEM: Anything Engine System Designer
+
+CRITICAL CANVAS CONTEXT:
+You are designing for Poe Canvas where window.Poe.sendUserMessage sends ALL previous messages in the conversation. This means Bot 3 receives Bot 1 and Bot 2's outputs whether wanted or not. Your prompts SHOULD handle this.
+
+CORE PHILOSOPHY:
+Your primary role is to populate the existing multi-stage framework of the Anything Engine by generating its three core operative components, based on the user's request:
+
+* **The Keys:** The Keys are the core intellectual tools for the engine. Each Key defines a unique perspective or method that will be used to operate upon a Subject. You are to generate a set of distinct Keys that intelligently reflect the user's core request.
+
+* **The Subjects (from the 'Input' bank):** The Subjects are illustrative topics or pieces of raw content that the engine will process. They serve as the material for the Keys to act upon. You should generate a diverse set of Subjects to demonstrate the engine's capabilities within the universe defined by the user's mandate.
+
+* **The Prompts:** The Prompts are the operational instructions for each bot in the chain, defining a clear role and a step-by-step workflow. They should be written as flexible templates tailored to the user's mandate. A bot's prompt should be designed to use the provided Key and Subject as its primary operational material.
+
+The engine's power is derived from two key principles that you should build into your generated prompts:
+
+1.  **Task Specialization:** Each bot in the sequence can dedicate its full processing capacity to its dedicated task. The chain can be designed with a mix of bot types, including both reasoning and web search models, to achieve a more focused and detailed output.
+2.  **Chained Contextualization:** To manage the Poe Canvas environment, prompts (from the second bot onward) should be designed to treat the full output from previous steps as **available background context**. The prompt should then instruct the bot to perform its own unique, specialized task to actively **build upon, refine, and improve** the existing material, ensuring an incremental and value-adding workflow.
+
+YOUR TASK:
+Design a complete ${botCount}-bot engine from the user's input. Generate:
+1. 5-15 keys (Bank 1)
+2. 5-8 input samples (Bank 2)
+3. EXACTLY ${botCount} bot prompts (Bank 3)
+4. An engine description explaining the approach
+
+OUTPUT FORMAT (JSON ONLY):
+{
+  "engine_name": "short_descriptive_engine_name",
+  "engine_description": "2-3 paragraph description of the system",
+  "keys": [
+    {"id": 1, "name": "key_name", "method": "clear_operational_method"}
+  ],
+  "input": [
+    {"id": 1, "content": "sample_subject_content"}
+  ],
+  "prompts": [
+    {"id": 1, "bot_number": 1, "role": "role_name", "instructions": "complete_prompt_text"}
+  ]
+}
+
+REMEMBER:
+- Generate EXACTLY ${botCount} prompts.
+- Prompts from the second bot onward should handle the Canvas context accumulation as described in the philosophy.
+
+USER INPUT:
+${promptText}
+
+Generate the complete engine now as valid JSON only.`;
+                updateProcessingLog(`Sending to ${selectedModel}...`);
+
+                await window.Poe.sendUserMessage(`@${selectedModel} ${magicBoxPrompt}`, {
+                    handler: 'magic-box-handler',
+                    stream: true,
+                    openChat: false
+                });
+
+            } catch (error) {
+                console.error('Magic Box error:', error);
+                status.textContent = `Error: ${error.message}`;
+                updateProcessingLog(`Error: ${error.message}`);
+            } finally {
+                // Reset loading state
+                spinner.classList.add('hidden');
+                text.classList.remove('invisible');
+            }
+        }
+
+        // Execute Autocomplete (formerly JSONify)
+        async function executeAutocomplete() {
+            const keysFile = document.getElementById('keysFile').files[0];
+            const inputFile = document.getElementById('inputFile').files[0];
+            const promptsFile = document.getElementById('promptsFile').files[0];
+            const customInstructions = document.getElementById('autocompleteInstructions').value;
+            const modelSelector = document.getElementById('autocompleteModel');
+            const status = document.getElementById('autocompleteStatus');
+            const spinner = document.getElementById('executeAutocompleteSpinner');
+            const text = document.getElementById('executeAutocompleteText');
+            const botCount = parseInt(document.getElementById('botCountSelector').value);
+
+            // Check if at least one file is uploaded
+            if (!keysFile && !inputFile && !promptsFile) {
+                status.textContent = "Please upload at least one file to any bank";
+                return;
+            }
+
+            // Set loading state
+            spinner.classList.remove('hidden');
+            text.classList.add('invisible');
+            status.textContent = "Processing with Autocomplete...";
+
+            try {
+                updateProcessingLog("Starting Autocomplete processing...");
+                
+                let fileContents = [];
+                let bankIndicators = [];
+
+                // Read all uploaded files
+                if (keysFile) {
+                    updateProcessingLog(`Reading Keys file: ${keysFile.name}`);
+                    const content = await readFileContent(keysFile);
+                    fileContents.push(content);
+                    bankIndicators.push("Bank 1 (Keys)");
+                }
+                
+                if (inputFile) {
+                    updateProcessingLog(`Reading Input file: ${inputFile.name}`);
+                    const content = await readFileContent(inputFile);
+                    fileContents.push(content);
+                    bankIndicators.push("Bank 2 (Input)");
+                }
+                
+                if (promptsFile) {
+                    updateProcessingLog(`Reading Prompts file: ${promptsFile.name}`);
+                    const content = await readFileContent(promptsFile);
+                    fileContents.push(content);
+                    bankIndicators.push("Bank 3 (Prompts)");
+                }
+
+                const selectedModel = modelSelector.value;
+                
+                // Autocomplete prompt
+                const autocompletePrompt = `ROLE: intelligent_autocomplete_engine
+SYSTEM: VG-AnythingEngine - Universal Transformation Autocomplete
+
+CANVAS CONTEXT:
+Designing for Poe Canvas where all previous messages accumulate. Generated prompts must handle this.
+
+YOUR TASK:
+Convert uploaded content into a complete ${botCount}-bot transformation engine. Fill ALL gaps intelligently.
+
+AUTOCOMPLETE RULES:
+1. Analyze uploaded content and infer what's missing
+2. If only one bank provided, generate the other two
+3. Even with minimal input (single letter "f"), create a functional engine
+4. Always generate EXACTLY ${botCount} prompts for Bank 3
+5. Maintain dialectical tension between bot stages
+
+CUSTOM INSTRUCTIONS:
+${customInstructions || "No custom instructions provided - use your best judgment"}
+
+UPLOADED FILES:
+${bankIndicators.map((indicator, index) => `${indicator}:\n${fileContents[index]}`).join('\n\n')}
+
+OUTPUT FORMAT (JSON ONLY):
+{
+  "engine_name": "short_descriptive_engine_name",
+  "engine_description": "2-3 paragraph description",
+  "keys": [{"id": 1, "name": "...", "method": "...", "domain": "..."}],
+  "input": [{"id": 1, "content": "...", "context": "...", "type": "..."}],
+  "prompts": [{"id": 1, "bot_number": 1, "role": "...", "instructions": "..."}]
+}
+
+CRITICAL:
+- Generate EXACTLY ${botCount} prompts
+- Bot 2+ prompts must include context handling
+- Fill ALL gaps - never fail, even on minimal input
+- Output valid JSON only
+
+Generate the complete engine now.`;
+
+                updateProcessingLog(`Sending to ${selectedModel}...`);
+
+                await window.Poe.sendUserMessage(`@${selectedModel} ${autocompletePrompt}`, {
+                    handler: 'autocomplete-handler',
+                    stream: false,
+                    openChat: false
+                });
+
+            } catch (error) {
+                console.error('Autocomplete error:', error);
+                status.textContent = `Error: ${error.message}`;
+                updateProcessingLog(`Error: ${error.message}`);
+            } finally {
+                // Reset loading state
+                spinner.classList.add('hidden');
+                text.classList.remove('invisible');
+            }
+        }
+
+        // Toggle processing log visibility
+        function toggleProcessingLog() {
+            const log = document.getElementById('processingLog');
+            const icon = document.getElementById('logToggleIcon');
+            
+            if (log.classList.contains('hidden')) {
+                log.classList.remove('hidden');
+                icon.textContent = '▲';
+            } else {
+                log.classList.add('hidden');
+                icon.textContent = '▼';
+            }
+        }
+
+        // Update bank status display
+        function updateBankStatus(statusId, message) {
+            const statusElement = document.getElementById(statusId);
+            if (statusElement) {
+                statusElement.innerHTML = `<span class="text-green-600">${message}</span>`;
+            }
+        }
+
+        // Enable random/load buttons after data is loaded
+        function enableRandomButtons() {
+            const buttons = [
+                'loadRandomKey', 'loadSpecificKey', 
+                'loadRandomInput', 'loadSpecificInput',
+                'loadRandomPrompt', 'loadSpecificPrompt',
+                'insertPromptBtn'
+            ];
+            
+            buttons.forEach(buttonId => {
+                const button = document.getElementById(buttonId);
+                if (button) {
+                    button.disabled = false;
+                    button.classList.remove('opacity-50');
+                }
+            });
+        }
+
+        // Update preview sections
+        function updatePreview(description, keys, input, prompts) {
+            const engineDesc = document.getElementById('engineDescription');
+            const engineDescContent = document.getElementById('engineDescriptionContent');
+            const banksPreview = document.getElementById('banksPreview');
+            const keysPreview = document.getElementById('keysPreview');
+            const inputPreview = document.getElementById('inputPreview');
+            const promptsPreview = document.getElementById('promptsPreview');
+
+            // Show engine description
+            if (description) {
+                engineDescContent.innerHTML = marked.parse(description);
+                engineDesc.classList.remove('hidden');
+            }
+
+            // Show banks preview
+            if (keys || input || prompts) {
+                keysPreview.textContent = keys ? JSON.stringify(keys, null, 2) : 'No keys generated';
+                inputPreview.textContent = input ? JSON.stringify(input, null, 2) : 'No input generated';
+                promptsPreview.textContent = prompts ? JSON.stringify(prompts, null, 2) : 'No prompts generated';
+                banksPreview.classList.remove('hidden');
+            }
+        }
+
+        // Tab switching functionality
+        function switchTab(tabName) {
+            // Hide all pages
+            document.querySelectorAll('.page-content').forEach(page => {
+                page.classList.add('hidden');
+            });
+            
+            // Remove active state from all tabs
+            document.querySelectorAll('.tab-button').forEach(tab => {
+                tab.classList.remove('active', 'border-[#5D5CDE]', 'text-[#5D5CDE]');
+                tab.classList.add('border-transparent', 'text-gray-500', 'hover:text-gray-700', 'dark:text-gray-400', 'dark:hover:text-gray-300', 'hover:border-gray-300');
+            });
+            
+            // Show selected page
+            document.getElementById(`page-${tabName}`).classList.remove('hidden');
+            
+            // Activate selected tab
+            const activeTab = document.getElementById(`tab-${tabName}`);
+            activeTab.classList.add('active', 'border-[#5D5CDE]', 'text-[#5D5CDE]');
+            activeTab.classList.remove('border-transparent', 'text-gray-500', 'hover:text-gray-700', 'dark:text-gray-400', 'dark:hover:text-gray-300', 'hover:border-gray-300');
+        }
+
+        // Custom modal dialogs
+        function showAlert(message) {
+            const modal = document.createElement('div');
+            modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
+            modal.innerHTML = `
+                <div class="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-lg max-w-sm w-full mx-4">
+                    <p class="text-gray-700 dark:text-gray-300 mb-4">${message}</p>
+                    <div class="flex justify-end">
+                        <button class="px-4 py-2 bg-blue-500 text-white hover:bg-blue-600 rounded" onclick="this.closest('.fixed').remove()">OK</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+        }
+
+        async function showPromptDialog(message, defaultValue = "") {
+            return new Promise((resolve) => {
+                const modal = document.createElement('div');
+                modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
+                modal.innerHTML = `
+                    <div class="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-lg max-w-sm w-full mx-4">
+                        <p class="text-gray-700 dark:text-gray-300 mb-4">${message}</p>
+                        <input type="text" value="${defaultValue}" class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-base mb-4" id="promptInput">
+                        <div class="flex justify-end space-x-3">
+                            <button class="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded" onclick="window.promptDialogResolve(null); this.closest('.fixed').remove();">Cancel</button>
+                            <button class="px-4 py-2 bg-blue-500 text-white hover:bg-blue-600 rounded" onclick="const val = this.closest('.fixed').querySelector('#promptInput').value; window.promptDialogResolve(val); this.closest('.fixed').remove();">OK</button>
+                        </div>
+                    </div>
+                `;
+                
+                window.promptDialogResolve = resolve;
+                document.body.appendChild(modal);
+                modal.querySelector('#promptInput').focus();
+            });
+        }
+
+        // Execute Bot function
+        async function executeBot(botNumber) {
+            console.log(`Executing Bot ${botNumber}`);
+            const modelSelector = document.getElementById(`bot${botNumber}Model`);
+            const output = document.getElementById(`bot${botNumber}Output`);
+            const status = document.getElementById(`bot${botNumber}Status`);
+            const spinner = document.getElementById(`executeBot${botNumber}Spinner`);
+            const text = document.getElementById(`executeBot${botNumber}Text`);
+            
+            // Set loading state
+            if (spinner && text) {
+                spinner.classList.remove('hidden');
+                text.classList.add('invisible');
+            }
+            
+            try {
+                const selectedModel = modelSelector ? modelSelector.value : 'Claude-Opus-4.1';
+                
+                // Get prompt - check bot-specific prompts first, then Bank 3
+                let botPrompt = botSpecificPrompts[botNumber];
+                
+                if (!botPrompt && bankData.prompts && bankData.prompts.length > 0) {
+                    const promptData = bankData.prompts.find(p => 
+                        p.bot_number === botNumber || p.id === botNumber
+                    );
+                    if (promptData) {
+                        botPrompt = promptData.instructions;
+                    }
+                }
+                
+                if (!botPrompt) {
+                    throw new Error(`No prompt found for Bot ${botNumber}. Please load a prompt using Random/Load buttons or insert a custom prompt.`);
+                }
+                
+                // Get current key and input
+                const currentKey = document.getElementById('currentKey')?.value || "";
+                const currentInput = document.getElementById('currentInput')?.value || "";
+                
+                if (!currentKey || !currentInput) {
+                    throw new Error("Please load a key and input before executing");
+                }
+                
+                // Construct the full prompt with key and input
+                const fullPrompt = `${botPrompt}
+
+TRANSFORMATION KEY:
+${currentKey}
+
+INPUT MATERIAL:
+${currentInput}
+
+Execute the transformation according to your role and instructions.`;
+                
+                updateProcessingLog(`Bot ${botNumber} executing with model: ${selectedModel}`);
+                if (status) status.textContent = "Processing...";
+                
+                await window.Poe.sendUserMessage(`@${selectedModel} ${fullPrompt}`, {
+                    handler: `bot${botNumber}-handler`,
+                    stream: true,
+                    openChat: false
+                });
+                
+            } catch (error) {
+                console.error(`Bot ${botNumber} error:`, error);
+                if (status) status.textContent = "Error occurred";
+                if (output) output.innerHTML = `<div class="text-red-600">Error: ${error.message}</div>`;
+                updateProcessingLog(`Bot ${botNumber} error: ${error.message}`);
+            } finally {
+                // Reset loading state
+                if (spinner && text) {
+                    spinner.classList.add('hidden');
+                    text.classList.remove('invisible');
+                }
+            }
+        }
+
+        // Track active response IDs for non-chunked logging
+        let activeResponseIds = {};
+
+        // Handle bot response
+        function handleBotResponse(result, botNum) {
+            const status = document.getElementById(`bot${botNum}Status`);
+            const output = document.getElementById(`bot${botNum}Output`);
+            
+            if (result.responses && result.responses.length > 0) {
+                const response = result.responses[0];
+                
+                if (response.status === "error") {
+                    if (status) status.textContent = "Error occurred";
+                    if (output) output.innerHTML = `<div class="text-red-600">Error: ${response.statusText || 'Unknown error'}</div>`;
+                    updateProcessingLog(`Bot ${botNum} error: ${response.statusText || 'Unknown error'}`);
+                } else if (response.status === "incomplete") {
+                    if (status) status.textContent = "Generating...";
+                    if (output) output.innerHTML = marked.parse(response.content || "Loading...");
+                    
+                    // Update single streaming response entry (no chunking)
+                    if (response.content && response.content.trim()) {
+                        const responseKey = `bot${botNum}_streaming`;
+                        activeResponseIds[responseKey] = updateProcessingLog({
+                            title: `Bot ${botNum} streaming response`,
+                            content: response.content
+                        }, true, activeResponseIds[responseKey]);
+                    }
+                } else if (response.status === "complete") {
+                    if (status) status.textContent = "Complete";
+                    if (output) output.innerHTML = marked.parse(response.content);
+                    updateProcessingLog(`Bot ${botNum} completed successfully`);
+                    
+                    // Log complete bot response as separate entry
+                    updateProcessingLog({
+                        title: `Bot ${botNum} complete response`,
+                        content: response.content
+                    }, true);
+                    
+                    // Clear the streaming response ID
+                    delete activeResponseIds[`bot${botNum}_streaming`];
+                }
+            }
+        }
+
+        // Handle Magic Box response
+        function handleMagicBoxResponse(result, context) {
+            const status = document.getElementById('magicBoxStatus');
+            
+            if (result.responses && result.responses.length > 0) {
+                const response = result.responses[0];
+                
+                if (response.status === "error") {
+                    status.textContent = "Error occurred during processing";
+                    updateProcessingLog(`Error: ${response.statusText || 'Unknown error'}`);
+                } else if (response.status === "incomplete") {
+                    status.textContent = "Generating transformation engine...";
+                    
+                    // Update single streaming response entry (no chunking)
+                    if (response.content && response.content.trim()) {
+                        activeResponseIds['magicbox_streaming'] = updateProcessingLog({
+                            title: "Magic Box streaming response",
+                            content: response.content
+                        }, true, activeResponseIds['magicbox_streaming']);
+                    }
+                } else if (response.status === "complete") {
+                    status.textContent = "Magic Box processing complete!";
+                    updateProcessingLog("Magic Box completed successfully");
+                    
+                    // Log complete response as separate entry
+                    updateProcessingLog({
+                        title: "Magic Box complete response",
+                        content: response.content
+                    }, true);
+                    
+                    // Clear the streaming response ID
+                    delete activeResponseIds['magicbox_streaming'];
+                    
+                    try {
+                        const content = response.content.trim();
+                        // Extract JSON from response
+                        const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/) || 
+                                         content.match(/```\s*([\s\S]*?)\s*```/) || 
+                                         content.match(/\{[\s\S]*\}/);
+                        
+                        if (jsonMatch) {
+                            const jsonString = jsonMatch[1] || jsonMatch[0];
+                            const parsedData = JSON.parse(jsonString);
+                            
+                            // Log parsed JSON structure
+                            updateProcessingLog({
+                                title: "Magic Box parsed JSON structure",
+                                content: JSON.stringify(parsedData, null, 2)
+                            }, true);
+                            
+                            // Store engine description and name
+                            const description = parsedData.engine_description || "Transformation engine generated";
+                            bankData.engineName = parsedData.engine_name || "UnnamedEngine";
+                            updateProcessingLog(`Engine name: ${bankData.engineName}`);
+                            
+                            // Update banks
+                            if (parsedData.keys) {
+                                bankData.keys = parsedData.keys;
+                                updateBankStatus('keysStatus', `Loaded ${parsedData.keys.length} keys`);
+                                updateProcessingLog(`Keys loaded: ${parsedData.keys.length} entries`);
+                            }
+                            
+                            if (parsedData.input) {
+                                bankData.input = parsedData.input;
+                                updateBankStatus('inputStatus', `Loaded ${parsedData.input.length} inputs`);
+                                updateProcessingLog(`Inputs loaded: ${parsedData.input.length} entries`);
+                            }
+                            
+                            if (parsedData.prompts) {
+                                bankData.prompts = parsedData.prompts;
+                                updateBankStatus('promptsStatus', `Loaded ${parsedData.prompts.length} prompts`);
+                                updateProcessingLog(`Prompts loaded: ${parsedData.prompts.length} entries`);
+                                populateBotsFromPrompts();
+                            }
+                            
+                            updatePreview(description, bankData.keys, bankData.input, bankData.prompts);
+                            enableRandomButtons();
+                            
+                        } else {
+                            throw new Error("Could not extract JSON from response");
+                        }
+                    } catch (parseError) {
+                        console.error('Magic Box parsing error:', parseError);
+                        status.textContent = "Could not parse engine structure";
+                        updateProcessingLog(`Parsing error: ${parseError.message}`);
+                    }
+                }
+            }
+        }
+
+        // Handle Autocomplete response
+        function handleAutocompleteResponse(result, context) {
+            const status = document.getElementById('autocompleteStatus');
+            
+            if (result.responses && result.responses.length > 0) {
+                const response = result.responses[0];
+                
+                if (response.status === "error") {
+                    status.textContent = "Error occurred during processing";
+                    updateProcessingLog(`Error: ${response.statusText || 'Unknown error'}`);
+                } else if (response.status === "incomplete") {
+                    status.textContent = "Processing files...";
+                    
+                    // Update single streaming response entry (no chunking)
+                    if (response.content && response.content.trim()) {
+                        activeResponseIds['autocomplete_streaming'] = updateProcessingLog({
+                            title: "Autocomplete streaming response",
+                            content: response.content
+                        }, true, activeResponseIds['autocomplete_streaming']);
+                    }
+                } else if (response.status === "complete") {
+                    status.textContent = "Autocomplete processing complete!";
+                    updateProcessingLog("Autocomplete completed successfully");
+                    
+                    // Log complete response as separate entry
+                    updateProcessingLog({
+                        title: "Autocomplete complete response",
+                        content: response.content
+                    }, true);
+                    
+                    // Clear the streaming response ID
+                    delete activeResponseIds['autocomplete_streaming'];
+                    
+                    try {
+                        const content = response.content.trim();
+                        // Extract JSON from response
+                        const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/) || 
+                                         content.match(/```\s*([\s\S]*?)\s*```/) || 
+                                         content.match(/\{[\s\S]*\}/);
+                        
+                        if (jsonMatch) {
+                            const jsonString = jsonMatch[1] || jsonMatch[0];
+                            const parsedData = JSON.parse(jsonString);
+                            
+                            // Log parsed JSON structure
+                            updateProcessingLog({
+                                title: "Autocomplete parsed JSON structure",
+                                content: JSON.stringify(parsedData, null, 2)
+                            }, true);
+                            
+                            // Store engine description and name
+                            const description = parsedData.engine_description || "Autocomplete engine generated";
+                            bankData.engineName = parsedData.engine_name || "AutocompleteEngine";
+                            updateProcessingLog(`Engine name: ${bankData.engineName}`);
+                            
+                            // Update banks
+                            if (parsedData.keys) {
+                                bankData.keys = parsedData.keys;
+                                updateBankStatus('keysStatus', `Loaded ${parsedData.keys.length} keys`);
+                                updateProcessingLog(`Keys loaded: ${parsedData.keys.length} entries`);
+                            }
+                            
+                            if (parsedData.input) {
+                                bankData.input = parsedData.input;
+                                updateBankStatus('inputStatus', `Loaded ${parsedData.input.length} inputs`);
+                                updateProcessingLog(`Inputs loaded: ${parsedData.input.length} entries`);
+                            }
+                            
+                            if (parsedData.prompts) {
+                                bankData.prompts = parsedData.prompts;
+                                updateBankStatus('promptsStatus', `Loaded ${parsedData.prompts.length} prompts`);
+                                updateProcessingLog(`Prompts loaded: ${parsedData.prompts.length} entries`);
+                                populateBotsFromPrompts();
+                            }
+                            
+                            updatePreview(description, bankData.keys, bankData.input, bankData.prompts);
+                            enableRandomButtons();
+                            
+                        } else {
+                            throw new Error("Could not extract JSON from response");
+                        }
+                    } catch (parseError) {
+                        console.error('Autocomplete parsing error:', parseError);
+                        status.textContent = "Could not parse engine structure";
+                        updateProcessingLog(`Parsing error: ${parseError.message}`);
+                    }
+                }
+            }
+        }
+
+        // Populate bots from prompts bank
+        function populateBotsFromPrompts() {
+            if (bankData.prompts && bankData.prompts.length > 0) {
+                updateProcessingLog("Populating bot prompts from bank...");
+                
+                bankData.prompts.forEach((prompt) => {
+                    const botNumber = prompt.bot_number || prompt.id;
+                    if (botNumber >= 1 && botNumber <= 10) {
+                        const promptStatus = document.getElementById(`bot${botNumber}PromptStatus`);
+                        if (promptStatus) {
+                            promptStatus.innerHTML = `<span class="text-green-600">Loaded: ${prompt.role}</span>`;
+                        }
+                    }
+                });
+                
+                // Update bot count to match prompts
+                const botCount = bankData.prompts.length;
+                const botCountSelector = document.getElementById('botCountSelector');
+                if (botCountSelector && botCount >= 1 && botCount <= 10) {
+                    botCountSelector.value = botCount;
+                    updateBotVisibility(botCount);
+                }
+                
+                updateProcessingLog("Bot prompts populated successfully");
+            }
+        }
+
+        // Load random key from Bank 1
+        async function loadRandomKey() {
+            if (bankData.keys && bankData.keys.length > 0) {
+                const randomKey = bankData.keys[Math.floor(Math.random() * bankData.keys.length)];
+                const currentKeyTextarea = document.getElementById('currentKey');
+                const statusElement = document.getElementById('currentKeyStatus');
+                
+                if (currentKeyTextarea && statusElement) {
+                    currentKeyTextarea.value = `${randomKey.name}: ${randomKey.method}`;
+                    statusElement.innerHTML = `<span class="text-green-600">Loaded key ID ${randomKey.id}</span>`;
+                    updateProcessingLog(`Random key loaded: ${randomKey.name}`);
+                }
+            }
+        }
+
+        // Load random input from Bank 2  
+        async function loadRandomInput() {
+            if (bankData.input && bankData.input.length > 0) {
+                const randomInput = bankData.input[Math.floor(Math.random() * bankData.input.length)];
+                const currentInputTextarea = document.getElementById('currentInput');
+                const statusElement = document.getElementById('currentInputStatus');
+                
+                if (currentInputTextarea && statusElement) {
+                    currentInputTextarea.value = randomInput.content;
+                    statusElement.innerHTML = `<span class="text-green-600">Loaded input ID ${randomInput.id}</span>`;
+                    updateProcessingLog(`Random input loaded: ID ${randomInput.id}`);
+                }
+            }
+        }
+
+        // Load specific key by ID
+        async function loadSpecificKey() {
+            const keyId = await showPromptDialog("Enter Key ID:", "1");
+            if (keyId && bankData.keys) {
+                const key = bankData.keys.find(k => k.id.toString() === keyId.toString());
+                if (key) {
+                    const currentKeyTextarea = document.getElementById('currentKey');
+                    const statusElement = document.getElementById('currentKeyStatus');
+                    
+                    if (currentKeyTextarea && statusElement) {
+                        currentKeyTextarea.value = `${key.name}: ${key.method}`;
+                        statusElement.innerHTML = `<span class="text-green-600">Loaded key ID ${key.id}</span>`;
+                        updateProcessingLog(`Specific key loaded: ${key.name}`);
+                    }
+                } else {
+                    showAlert(`Key with ID ${keyId} not found`);
+                }
+            }
+        }
+
+        // Load specific input by ID
+        async function loadSpecificInput() {
+            const inputId = await showPromptDialog("Enter Input ID:", "1");
+            if (inputId && bankData.input) {
+                const input = bankData.input.find(i => i.id.toString() === inputId.toString());
+                if (input) {
+                    const currentInputTextarea = document.getElementById('currentInput');
+                    const statusElement = document.getElementById('currentInputStatus');
+                    
+                    if (currentInputTextarea && statusElement) {
+                        currentInputTextarea.value = input.content;
+                        statusElement.innerHTML = `<span class="text-green-600">Loaded input ID ${input.id}</span>`;
+                        updateProcessingLog(`Specific input loaded: ID ${input.id}`);
+                    }
+                } else {
+                    showAlert(`Input with ID ${inputId} not found`);
+                }
+            }
+        }
+
+        // Load random prompt from Bank 3
+        async function loadRandomPrompt() {
+            if (bankData.prompts && bankData.prompts.length > 0) {
+                const randomPrompt = bankData.prompts[Math.floor(Math.random() * bankData.prompts.length)];
+                const currentPromptTextarea = document.getElementById('currentPrompt');
+                const statusElement = document.getElementById('currentPromptStatus');
+                
+                if (currentPromptTextarea && statusElement) {
+                    currentPromptTextarea.value = randomPrompt.instructions;
+                    statusElement.innerHTML = `<span class="text-green-600">Loaded prompt ID ${randomPrompt.id} (${randomPrompt.role})</span>`;
+                    updateProcessingLog(`Random prompt loaded: ${randomPrompt.role}`);
+                }
+            }
+        }
+
+        // Load specific prompt by ID
+        async function loadSpecificPrompt() {
+            const promptId = await showPromptDialog("Enter Prompt ID:", "1");
+            if (promptId && bankData.prompts) {
+                const prompt = bankData.prompts.find(p => p.id.toString() === promptId.toString());
+                if (prompt) {
+                    const currentPromptTextarea = document.getElementById('currentPrompt');
+                    const statusElement = document.getElementById('currentPromptStatus');
+                    
+                    if (currentPromptTextarea && statusElement) {
+                        currentPromptTextarea.value = prompt.instructions;
+                        statusElement.innerHTML = `<span class="text-green-600">Loaded prompt ID ${prompt.id} (${prompt.role})</span>`;
+                        updateProcessingLog(`Specific prompt loaded: ${prompt.role}`);
+                    }
+                } else {
+                    showAlert(`Prompt with ID ${promptId} not found`);
+                }
+            }
+        }
+
+        // Toggle insert prompt dropdown
+        function toggleInsertDropdown() {
+            const dropdown = document.getElementById('insertPromptDropdown');
+            dropdown.classList.toggle('hidden');
+        }
+
+        // Close dropdown when clicking outside
+        function closeInsertDropdown() {
+            const dropdown = document.getElementById('insertPromptDropdown');
+            dropdown.classList.add('hidden');
+        }
+
+        // Insert prompt into specific bot with confirmation
+        async function insertPromptIntoBot(botNumber) {
+            closeInsertDropdown();
+            
+            const currentPromptTextarea = document.getElementById('currentPrompt');
+            const promptContent = currentPromptTextarea?.value?.trim();
+            
+            if (!promptContent) {
+                showAlert('No prompt content to insert. Please load or enter a prompt first.');
+                return;
+            }
+            
+            // Show confirmation dialog
+            showConfirmDialog(
+                `Insert this prompt into Bot ${botNumber}?`,
+                () => {
+                    // Store the prompt for the specific bot
+                    botSpecificPrompts[botNumber] = promptContent;
+                    
+                    // Update bot prompt status
+                    const promptStatus = document.getElementById(`bot${botNumber}PromptStatus`);
+                    if (promptStatus) {
+                        promptStatus.innerHTML = `<span class="text-orange-600">Custom prompt inserted</span>`;
+                    }
+                    
+                    updateProcessingLog(`Custom prompt inserted into Bot ${botNumber}`);
+                    showAlert(`Prompt successfully inserted into Bot ${botNumber}!`);
+                    
+                    // Update staging status
+                    const statusElement = document.getElementById('currentPromptStatus');
+                    if (statusElement) {
+                        statusElement.innerHTML = `<span class="text-green-600">Inserted into Bot ${botNumber}</span>`;
+                    }
+                }
+            );
+        }
+
+        // Custom confirm dialog
+        function showConfirmDialog(message, onConfirm) {
+            const modal = document.createElement('div');
+            modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
+            modal.innerHTML = `
+                <div class="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-lg max-w-sm w-full mx-4">
+                    <p class="text-gray-700 dark:text-gray-300 mb-4">${message}</p>
+                    <div class="flex justify-end space-x-3">
+                        <button class="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded" onclick="this.closest('.fixed').remove()">Cancel</button>
+                        <button class="px-4 py-2 bg-orange-500 text-white hover:bg-orange-600 rounded" onclick="this.closest('.fixed').remove(); arguments[0]()">Insert</button>
+                    </div>
+                </div>
+            `;
+            
+            // Add the onConfirm function to the button's onclick
+            const confirmBtn = modal.querySelector('.bg-orange-500');
+            confirmBtn.onclick = () => {
+                modal.remove();
+                onConfirm();
+            };
+            
+            document.body.appendChild(modal);
+        }
+
+        // Save complete state
+        async function saveState() {
+            const currentState = {
+                bankData: bankData,
+                botCount: parseInt(document.getElementById('botCountSelector')?.value || 6),
+                currentKey: document.getElementById('currentKey')?.value || '',
+                currentInput: document.getElementById('currentInput')?.value || '',
+                magicBoxInput: document.getElementById('magicBoxInput')?.value || '',
+                autocompleteInstructions: document.getElementById('autocompleteInstructions')?.value || '',
+                selectedModels: {},
+                botOutputs: {}
+            };
+            
+            // Save selected models for each component
+            const selectors = ['magicBoxModel', 'autocompleteModel'];
+            for (let i = 1; i <= 10; i++) {
+                selectors.push(`bot${i}Model`);
+                // Save bot outputs
+                const output = document.getElementById(`bot${i}Output`);
+                if (output) {
+                    currentState.botOutputs[`bot${i}`] = output.innerHTML;
+                }
+            }
+            selectors.forEach(id => {
+                const select = document.getElementById(id);
+                if (select) {
+                    currentState.selectedModels[id] = select.value;
+                }
+            });
+            
+            const stateString = JSON.stringify(currentState, null, 2);
+            navigator.clipboard.writeText(stateString).then(() => {
+                showAlert('State saved to clipboard successfully!');
+                updateProcessingLog('State saved to clipboard');
+            }).catch(err => {
+                showAlert('Failed to save to clipboard: ' + err.message);
+            });
+        }
+
+        // Load state from clipboard
+        async function loadState() {
+            const stateString = await showPromptDialog('Paste state JSON:', '');
+            if (!stateString) return;
+            
+            try {
+                const state = JSON.parse(stateString);
+                
+                // Restore bank data
+                if (state.bankData) {
+                    bankData = state.bankData;
+                    
+                    // Update bank status displays
+                    if (bankData.keys && bankData.keys.length > 0) {
+                        updateBankStatus('keysStatus', `Loaded ${bankData.keys.length} keys`);
+                    }
+                    if (bankData.input && bankData.input.length > 0) {
+                        updateBankStatus('inputStatus', `Loaded ${bankData.input.length} inputs`);
+                    }
+                    if (bankData.prompts && bankData.prompts.length > 0) {
+                        updateBankStatus('promptsStatus', `Loaded ${bankData.prompts.length} prompts`);
+                        populateBotsFromPrompts();
+                    }
+                    
+                    enableRandomButtons();
+                    updatePreview("State loaded", bankData.keys, bankData.input, bankData.prompts);
+                }
+                
+                // Restore UI state
+                if (state.botCount) {
+                    const botCountSelector = document.getElementById('botCountSelector');
+                    if (botCountSelector) {
+                        botCountSelector.value = state.botCount;
+                        updateBotVisibility(state.botCount);
+                    }
+                }
+                
+                if (state.currentKey) {
+                    const currentKeyTextarea = document.getElementById('currentKey');
+                    if (currentKeyTextarea) currentKeyTextarea.value = state.currentKey;
+                }
+                
+                if (state.currentInput) {
+                    const currentInputTextarea = document.getElementById('currentInput');
+                    if (currentInputTextarea) currentInputTextarea.value = state.currentInput;
+                }
+                
+                if (state.magicBoxInput) {
+                    const magicBoxInput = document.getElementById('magicBoxInput');
+                    if (magicBoxInput) magicBoxInput.value = state.magicBoxInput;
+                }
+                
+                if (state.autocompleteInstructions) {
+                    const autocompleteInstructions = document.getElementById('autocompleteInstructions');
+                    if (autocompleteInstructions) autocompleteInstructions.value = state.autocompleteInstructions;
+                }
+                
+                // Restore model selections
+                if (state.selectedModels) {
+                    Object.entries(state.selectedModels).forEach(([id, value]) => {
+                        const select = document.getElementById(id);
+                        if (select) select.value = value;
+                    });
+                }
+                
+                // Restore bot outputs
+                if (state.botOutputs) {
+                    Object.entries(state.botOutputs).forEach(([botId, content]) => {
+                        const output = document.getElementById(`${botId}Output`);
+                        if (output) output.innerHTML = content;
+                    });
+                }
+                
+                showAlert('State loaded successfully!');
+                updateProcessingLog('State loaded from clipboard');
+                
+            } catch (error) {
+                showAlert('Failed to parse state JSON: ' + error.message);
+            }
+        }
+
+        // Bot utility functions
+        function copyBotOutput(botNumber) {
+            const output = document.getElementById(`bot${botNumber}Output`);
+            if (output) {
+                const text = output.innerText;
+                navigator.clipboard.writeText(text).then(() => {
+                    showAlert(`Bot ${botNumber} output copied to clipboard!`);
+                }).catch(err => {
+                    showAlert('Failed to copy: ' + err.message);
+                });
+            }
+        }
+
+        function downloadBotOutput(botNumber) {
+            const output = document.getElementById(`bot${botNumber}Output`);
+            const modelSelector = document.getElementById(`bot${botNumber}Model`);
+            
+            if (output && output.innerText.trim()) {
+                const timestamp = generateTimestamp();
+                const engineName = bankData.engineName || 'UnknownEngine';
+                const modelName = modelSelector ? cleanModelName(modelSelector.value) : 'UnknownModel';
+                const botPrompt = bankData.prompts?.find(p => p.bot_number === botNumber);
+                const currentKey = document.getElementById('currentKey')?.value || '';
+                const currentInput = document.getElementById('currentInput')?.value || '';
+                
+                // Create markdown content with metadata
+                let content = `# Bot ${botNumber} Output - ${engineName}\n\n`;
+                content += `**Generated:** ${new Date().toLocaleString()}\n`;
+                content += `**Engine:** ${engineName}\n`;
+                content += `**Bot:** ${botNumber}\n`;
+                content += `**Model:** ${modelSelector ? modelSelector.value : 'Unknown'}\n`;
+                if (botPrompt) {
+                    content += `**Role:** ${botPrompt.role}\n`;
+                }
+                content += `\n---\n\n`;
+                
+                if (currentKey) {
+                    content += `## 🔑 Transformation Key\n\n${currentKey}\n\n`;
+                }
+                
+                if (currentInput) {
+                    content += `## 📝 Input Material\n\n${currentInput}\n\n`;
+                }
+                
+                content += `## 🤖 Bot ${botNumber} Output\n\n${output.innerText}\n`;
+                
+                const blob = new Blob([content], { type: 'text/markdown' });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = `${engineName}_bot${botNumber}_${modelName}_${timestamp}.md`;
+                link.click();
+                URL.revokeObjectURL(url);
+                
+                updateProcessingLog(`Bot ${botNumber} output downloaded: ${engineName}_bot${botNumber}_${modelName}_${timestamp}.md`);
+            } else {
+                showAlert(`Bot ${botNumber} has no output to download`);
+            }
+        }
+
+        function clearBotOutput(botNumber) {
+            const output = document.getElementById(`bot${botNumber}Output`);
+            const status = document.getElementById(`bot${botNumber}Status`);
+            if (output) output.innerHTML = '';
+            if (status) status.textContent = '';
+        }
+
+        // Generate timestamp for file naming
+        function generateTimestamp() {
+            const now = new Date();
+            const months = ['January', 'February', 'March', 'April', 'May', 'June', 
+                           'July', 'August', 'September', 'October', 'November', 'December'];
+            const month = months[now.getMonth()];
+            const date = now.getDate();
+            const hours = now.getHours().toString().padStart(2, '0');
+            const minutes = now.getMinutes().toString().padStart(2, '0');
+            const seconds = now.getSeconds().toString().padStart(2, '0');
+            
+            return `${month}${date}_${hours}${minutes}${seconds}`;
+        }
+
+        // Clean model name for file naming
+        function cleanModelName(modelName) {
+            return modelName.replace(/[-._]/g, '');
+        }
+
+        // Download banks function
+        function downloadBanks() {
+            if (!bankData.keys.length && !bankData.input.length && !bankData.prompts.length) {
+                showAlert('No bank data available to download');
+                return;
+            }
+
+            const timestamp = generateTimestamp();
+            const engineName = bankData.engineName || 'UnknownEngine';
+            
+            // Download Bank 1: Keys
+            if (bankData.keys.length > 0) {
+                const keysBlob = new Blob([JSON.stringify(bankData.keys, null, 2)], { type: 'application/json' });
+                const keysUrl = URL.createObjectURL(keysBlob);
+                const keysLink = document.createElement('a');
+                keysLink.href = keysUrl;
+                keysLink.download = `Bank1_Keys_${engineName}_${timestamp}.json`;
+                keysLink.click();
+                URL.revokeObjectURL(keysUrl);
+            }
+            
+            // Download Bank 2: Input
+            if (bankData.input.length > 0) {
+                const inputBlob = new Blob([JSON.stringify(bankData.input, null, 2)], { type: 'application/json' });
+                const inputUrl = URL.createObjectURL(inputBlob);
+                const inputLink = document.createElement('a');
+                inputLink.href = inputUrl;
+                inputLink.download = `Bank2_Input_${engineName}_${timestamp}.json`;
+                inputLink.click();
+                URL.revokeObjectURL(inputUrl);
+            }
+            
+            // Download Bank 3: Prompts
+            if (bankData.prompts.length > 0) {
+                const promptsBlob = new Blob([JSON.stringify(bankData.prompts, null, 2)], { type: 'application/json' });
+                const promptsUrl = URL.createObjectURL(promptsBlob);
+                const promptsLink = document.createElement('a');
+                promptsLink.href = promptsUrl;
+                promptsLink.download = `Bank3_Prompts_${engineName}_${timestamp}.json`;
+                promptsLink.click();
+                URL.revokeObjectURL(promptsUrl);
+            }
+            
+            updateProcessingLog(`Banks downloaded: ${bankData.keys.length ? 'Keys ' : ''}${bankData.input.length ? 'Input ' : ''}${bankData.prompts.length ? 'Prompts' : ''}`);
+            showAlert('Bank files downloaded successfully!');
+        }
+
+        // Download complete flow (all bot outputs)
+        function downloadFlow() {
+            const timestamp = generateTimestamp();
+            const engineName = bankData.engineName || 'UnknownEngine';
+            let hasContent = false;
+            let flowContent = `# ${engineName} - Complete Execution Flow\n\n`;
+            flowContent += `**Generated:** ${new Date().toLocaleString()}\n`;
+            flowContent += `**Engine:** ${engineName}\n\n`;
+            
+            // Add current key and input
+            const currentKey = document.getElementById('currentKey')?.value || '';
+            const currentInput = document.getElementById('currentInput')?.value || '';
+            
+            if (currentKey) {
+                flowContent += `## 🔑 Transformation Key\n\n${currentKey}\n\n`;
+            }
+            
+            if (currentInput) {
+                flowContent += `## 📝 Input Material\n\n${currentInput}\n\n`;
+            }
+            
+            // Add all bot outputs
+            for (let i = 1; i <= 10; i++) {
+                const output = document.getElementById(`bot${i}Output`);
+                const modelSelector = document.getElementById(`bot${i}Model`);
+                
+                if (output && output.innerText.trim()) {
+                    hasContent = true;
+                    const modelName = modelSelector ? modelSelector.value : 'Unknown';
+                    const botPrompt = bankData.prompts?.find(p => p.bot_number === i);
+                    
+                    flowContent += `## 🤖 Bot ${i} - ${cleanModelName(modelName)}\n\n`;
+                    if (botPrompt) {
+                        flowContent += `**Role:** ${botPrompt.role}\n\n`;
+                    }
+                    flowContent += `**Model:** ${modelName}\n\n`;
+                    flowContent += `### Output:\n\n${output.innerText}\n\n---\n\n`;
+                }
+            }
+            
+            if (!hasContent) {
+                showAlert('No bot outputs available to download');
+                return;
+            }
+            
+            const blob = new Blob([flowContent], { type: 'text/markdown' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `${engineName}_CompleteFlow_${timestamp}.md`;
+            link.click();
+            URL.revokeObjectURL(url);
+            
+            updateProcessingLog(`Complete flow downloaded: ${engineName}_CompleteFlow_${timestamp}.md`);
+            showAlert('Complete flow downloaded successfully!');
+        }
+
+        // Initialize on page load
+        window.addEventListener('DOMContentLoaded', () => {
+            populateModelDropdowns();
+            
+            // Setup tab switching
+            document.getElementById('tab-config').addEventListener('click', () => switchTab('config'));
+            document.getElementById('tab-execution').addEventListener('click', () => switchTab('execution'));
+            
+            // Setup bot count selector
+            const botCountSelector = document.getElementById('botCountSelector');
+            if (botCountSelector) {
+                botCountSelector.addEventListener('change', (e) => {
+                    const botCount = parseInt(e.target.value);
+                    updateBotVisibility(botCount);
+                });
+                // Initialize with default value (4)
+                updateBotVisibility(4);
+            }
+
+            // Setup Magic Box button
+            const executeMagicBoxBtn = document.getElementById('executeMagicBox');
+            if (executeMagicBoxBtn) {
+                executeMagicBoxBtn.addEventListener('click', executeMagicBox);
+            }
+
+            // Setup Autocomplete button
+            const executeAutocompleteBtn = document.getElementById('executeAutocomplete');
+            if (executeAutocompleteBtn) {
+                executeAutocompleteBtn.addEventListener('click', executeAutocomplete);
+            }
+
+            // Setup random/load buttons
+            document.getElementById('loadRandomKey')?.addEventListener('click', loadRandomKey);
+            document.getElementById('loadRandomInput')?.addEventListener('click', loadRandomInput);
+            document.getElementById('loadSpecificKey')?.addEventListener('click', loadSpecificKey);
+            document.getElementById('loadSpecificInput')?.addEventListener('click', loadSpecificInput);
+            document.getElementById('loadRandomPrompt')?.addEventListener('click', loadRandomPrompt);
+            document.getElementById('loadSpecificPrompt')?.addEventListener('click', loadSpecificPrompt);
+            
+            // Setup Insert button dropdown
+            document.getElementById('insertPromptBtn')?.addEventListener('click', toggleInsertDropdown);
+            
+            // Close dropdown when clicking outside
+            document.addEventListener('click', (e) => {
+                const insertBtn = document.getElementById('insertPromptBtn');
+                const dropdown = document.getElementById('insertPromptDropdown');
+                if (insertBtn && dropdown && !insertBtn.contains(e.target) && !dropdown.contains(e.target)) {
+                    closeInsertDropdown();
+                }
+            });
+
+            // Register handlers for Magic Box and Autocomplete
+            window.Poe.registerHandler('magic-box-handler', handleMagicBoxResponse);
+            window.Poe.registerHandler('autocomplete-handler', handleAutocompleteResponse);
+
+            // Register handlers for all bots (1-10)
+            for (let i = 1; i <= 10; i++) {
+                window.Poe.registerHandler(`bot${i}-handler`, (result) => {
+                    handleBotResponse(result, i);
+                });
+            }
+        });
+    </script>
+</head>
+<body class="bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 min-h-screen">
+    <div class="container mx-auto px-4 py-8 max-w-6xl">
+        <!-- Header -->
+        <div class="text-center mb-8">
+            <h1 class="text-3xl font-bold text-[#5D5CDE] mb-2">⚡ VG-AnythingEngine</h1>
+            <p class="text-gray-600 dark:text-gray-400">Universal Transformation Framework v2.0</p>
+        </div>
+
+        <!-- Tab Navigation -->
+        <div class="mb-6">
+            <div class="border-b border-gray-200 dark:border-gray-700">
+                <nav class="-mb-px flex justify-between items-center">
+                    <div class="flex space-x-8">
+                        <button id="tab-config" class="tab-button active py-2 px-1 border-b-2 border-[#5D5CDE] font-medium text-sm text-[#5D5CDE]">
+                            📝 Input Configuration
+                        </button>
+                        <button id="tab-execution" class="tab-button py-2 px-1 border-b-2 border-transparent font-medium text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300 hover:border-gray-300">
+                            ⚡ Execution & Results
+                        </button>
+                    </div>
+                    <!-- Utilities -->
+                    <div class="flex space-x-2 pb-2">
+                        <button 
+                            class="p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-lg"
+                            onclick="saveState()"
+                            title="Save State"
+                        >
+                            💾
+                        </button>
+                        <button 
+                            class="p-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-lg"
+                            onclick="loadState()"
+                            title="Load State"
+                        >
+                            📂
+                        </button>
+                        <button 
+                            class="p-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-lg"
+                            onclick="downloadState()"
+                            title="Download State"
+                        >
+                            💾⬇
+                        </button>
+                    </div>
+                </nav>
+            </div>
+        </div>
+
+        <!-- Page 1: Input Configuration -->
+        <div id="page-config" class="page-content">
+            <h2 class="text-xl font-semibold mb-4">📝 Input Configuration</h2>
+
+            <!-- Magic Box Section -->
+            <div class="mb-6 p-6 bg-gradient-to-r from-purple-50 to-blue-50 dark:from-purple-900/20 dark:to-blue-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
+                <h3 class="font-semibold mb-4 text-purple-800 dark:text-purple-200 text-lg">⚡ Magic Box (Genie) - Universal Engine Designer</h3>
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <!-- Input Area -->
+                    <div class="lg:col-span-2 space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium mb-2">Input Text or Description</label>
+                            <textarea 
+                                id="magicBoxInput" 
+                                class="w-full p-4 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-base resize-vertical"
+                                rows="8"
+                                placeholder="Enter any text, problem, idea, or description. The Genie will design a complete transformation engine..."
+                            ></textarea>
+                        </div>
+                        <div class="flex items-center space-x-4">
+                            <div>
+                                <label class="block text-sm font-medium mb-2">File Attachment (Optional)</label>
+                                <input type="file" id="magicBoxFile" class="w-full text-sm" accept="*/*">
+                            </div>
+                            <div class="flex-shrink-0">
+                                <label class="block text-sm font-medium mb-2">Processing Model</label>
+                                <select id="magicBoxModel" class="p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-sm">
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Controls -->
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium mb-2">Bot Count</label>
+                            <select id="botCountSelector" class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-base">
+                                <option value="1">1 Bot</option>
+                                <option value="2">2 Bots</option>
+                                <option value="3">3 Bots</option>
+                                <option value="4" selected>4 Bots</option>
+                                <option value="5">5 Bots</option>
+                                <option value="6">6 Bots</option>
+                                <option value="7">7 Bots</option>
+                                <option value="8">8 Bots</option>
+                                <option value="9">9 Bots</option>
+                                <option value="10">10 Bots</option>
+                            </select>
+                        </div>
+                        <button 
+                            id="executeMagicBox"
+                            class="w-full px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors font-medium relative"
+                        >
+                            <span id="executeMagicBoxText">⚡ Generate Engine</span>
+                            <div id="executeMagicBoxSpinner" class="hidden absolute inset-0 flex items-center justify-center">
+                                <div class="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
+                            </div>
+                        </button>
+                        <div id="magicBoxStatus" class="text-sm text-gray-600 dark:text-gray-400 min-h-[20px]"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Three Banks System -->
+            <div class="mb-6 p-6 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
+                <h3 class="font-semibold mb-4 text-green-800 dark:text-green-200 text-lg">🏦 Three Banks System (Autocomplete)</h3>
+                
+                <!-- Bank Upload Areas -->
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+                    <!-- Bank 1: Keys -->
+                    <div class="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
+                        <h4 class="font-medium mb-3 text-gray-800 dark:text-gray-200">🔑 Bank 1: Keys</h4>
+                        <div class="space-y-3">
+                            <input type="file" id="keysFile" class="w-full text-sm" accept="*/*">
+                            <div id="keysStatus" class="text-xs font-medium">
+                                <span class="text-gray-500">Empty</span>
+                            </div>
+                            <p class="text-xs text-gray-500">Upload transformation techniques</p>
+                        </div>
+                    </div>
+
+                    <!-- Bank 2: Input -->
+                    <div class="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
+                        <h4 class="font-medium mb-3 text-gray-800 dark:text-gray-200">📝 Bank 2: Input</h4>
+                        <div class="space-y-3">
+                            <input type="file" id="inputFile" class="w-full text-sm" accept="*/*">
+                            <div id="inputStatus" class="text-xs font-medium">
+                                <span class="text-gray-500">Empty</span>
+                            </div>
+                            <p class="text-xs text-gray-500">Upload material to transform</p>
+                        </div>
+                    </div>
+
+                    <!-- Bank 3: Prompts -->
+                    <div class="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
+                        <h4 class="font-medium mb-3 text-gray-800 dark:text-gray-200">⚡ Bank 3: Prompts</h4>
+                        <div class="space-y-3">
+                            <input type="file" id="promptsFile" class="w-full text-sm" accept="*/*">
+                            <div id="promptsStatus" class="text-xs font-medium">
+                                <span class="text-gray-500">Empty</span>
+                            </div>
+                            <p class="text-xs text-gray-500">Upload bot prompts (optional)</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Custom Instructions -->
+                <div class="mb-4">
+                    <label class="block text-sm font-medium mb-2 text-gray-800 dark:text-gray-200">Custom Instructions for Autocomplete</label>
+                    <textarea 
+                        id="autocompleteInstructions" 
+                        class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm resize-vertical"
+                        rows="3"
+                        placeholder="Optional: Provide specific instructions for how to interpret and complete the uploaded files..."
+                    ></textarea>
+                </div>
+
+                <!-- Autocomplete Controls -->
+                <div class="border-t border-gray-200 dark:border-gray-700 pt-4">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h4 class="font-medium text-gray-800 dark:text-gray-200 mb-1">🔄 Autocomplete Processing</h4>
+                            <p class="text-xs text-gray-500">Convert uploaded files to complete engine JSON</p>
+                        </div>
+                        <div class="flex items-center space-x-3">
+                            <button 
+                                class="px-3 py-2 bg-gray-600 text-white rounded hover:bg-gray-700 transition-colors text-sm"
+                                onclick="downloadBanks()"
+                                title="Download All Banks"
+                            >
+                                📥 Download Banks
+                            </button>
+                            <select id="autocompleteModel" class="px-3 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-sm">
+                            </select>
+                            <button 
+                                id="executeAutocomplete"
+                                class="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium relative"
+                            >
+                                <span id="executeAutocompleteText">🔄 Autocomplete</span>
+                                <div id="executeAutocompleteSpinner" class="hidden absolute inset-0 flex items-center justify-center">
+                                    <div class="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
+                                </div>
+                            </button>
+                        </div>
+                    </div>
+                    <div id="autocompleteStatus" class="text-sm text-gray-600 dark:text-gray-400 mt-2 min-h-[20px]"></div>
+                </div>
+            </div>
+
+            <!-- Execution Input Section -->
+            <div class="mb-6 p-6 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                <h3 class="font-semibold mb-4 text-blue-800 dark:text-blue-200 text-lg">🎯 Current Execution Configuration</h3>
+                
+                <!-- Top row: Key and Prompt side by side -->
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                    <!-- Current Key -->
+                    <div>
+                        <div class="flex items-center justify-between mb-2">
+                            <label class="block text-sm font-medium text-gray-800 dark:text-gray-200">🔑 Current Key</label>
+                            <div class="flex space-x-1">
+                                <button 
+                                    id="loadRandomKey"
+                                    class="px-2 py-1 bg-green-600 text-white rounded hover:bg-green-700 transition-colors text-xs opacity-50"
+                                    title="Load Random Key from Bank 1"
+                                    disabled
+                                >
+                                    🎲 Random
+                                </button>
+                                <button 
+                                    id="loadSpecificKey"
+                                    class="px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors text-xs opacity-50"
+                                    title="Load Specific Key by ID"
+                                    disabled
+                                >
+                                    📂 Load
+                                </button>
+                            </div>
+                        </div>
+                        <textarea 
+                            id="currentKey" 
+                            class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-base resize-vertical"
+                            rows="6"
+                            placeholder="Current transformation key will appear here after loading from Bank 1..."
+                        ></textarea>
+                        <div id="currentKeyStatus" class="text-xs text-gray-500 mt-1">No key selected</div>
+                    </div>
+
+                    <!-- Current Prompt -->
+                    <div>
+                        <div class="flex items-center justify-between mb-2">
+                            <label class="block text-sm font-medium text-gray-800 dark:text-gray-200">⚡ Current Prompt (Staging)</label>
+                            <div class="flex space-x-1">
+                                <div class="relative">
+                                    <button 
+                                        id="insertPromptBtn"
+                                        class="px-2 py-1 bg-orange-600 text-white rounded hover:bg-orange-700 transition-colors text-xs opacity-50 flex items-center"
+                                        title="Insert Prompt into Specific Bot"
+                                        disabled
+                                    >
+                                        📤 Insert ▼
+                                    </button>
+                                    <div id="insertPromptDropdown" class="hidden absolute top-full left-0 mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded shadow-lg z-10 min-w-[120px]">
+                                        <div class="py-1">
+                                            <button class="block w-full text-left px-3 py-1 text-xs hover:bg-gray-100 dark:hover:bg-gray-700" onclick="insertPromptIntoBot(1)">Insert into Bot 1</button>
+                                            <button class="block w-full text-left px-3 py-1 text-xs hover:bg-gray-100 dark:hover:bg-gray-700" onclick="insertPromptIntoBot(2)">Insert into Bot 2</button>
+                                            <button class="block w-full text-left px-3 py-1 text-xs hover:bg-gray-100 dark:hover:bg-gray-700" onclick="insertPromptIntoBot(3)">Insert into Bot 3</button>
+                                            <button class="block w-full text-left px-3 py-1 text-xs hover:bg-gray-100 dark:hover:bg-gray-700" onclick="insertPromptIntoBot(4)">Insert into Bot 4</button>
+                                            <button class="block w-full text-left px-3 py-1 text-xs hover:bg-gray-100 dark:hover:bg-gray-700" onclick="insertPromptIntoBot(5)">Insert into Bot 5</button>
+                                            <button class="block w-full text-left px-3 py-1 text-xs hover:bg-gray-100 dark:hover:bg-gray-700" onclick="insertPromptIntoBot(6)">Insert into Bot 6</button>
+                                            <button class="block w-full text-left px-3 py-1 text-xs hover:bg-gray-100 dark:hover:bg-gray-700" onclick="insertPromptIntoBot(7)">Insert into Bot 7</button>
+                                            <button class="block w-full text-left px-3 py-1 text-xs hover:bg-gray-100 dark:hover:bg-gray-700" onclick="insertPromptIntoBot(8)">Insert into Bot 8</button>
+                                            <button class="block w-full text-left px-3 py-1 text-xs hover:bg-gray-100 dark:hover:bg-gray-700" onclick="insertPromptIntoBot(9)">Insert into Bot 9</button>
+                                            <button class="block w-full text-left px-3 py-1 text-xs hover:bg-gray-100 dark:hover:bg-gray-700" onclick="insertPromptIntoBot(10)">Insert into Bot 10</button>
+                                        </div>
+                                    </div>
+                                </div>
+                                <button 
+                                    id="loadRandomPrompt"
+                                    class="px-2 py-1 bg-green-600 text-white rounded hover:bg-green-700 transition-colors text-xs opacity-50"
+                                    title="Load Random Prompt from Bank 3"
+                                    disabled
+                                >
+                                    🎲 Random
+                                </button>
+                                <button 
+                                    id="loadSpecificPrompt"
+                                    class="px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors text-xs opacity-50"
+                                    title="Load Specific Prompt by ID"
+                                    disabled
+                                >
+                                    📂 Load
+                                </button>
+                            </div>
+                        </div>
+                        <textarea 
+                            id="currentPrompt" 
+                            class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-base resize-vertical"
+                            rows="6"
+                            placeholder="Staging area: Load a prompt here, edit if needed, then use Insert button to assign to specific bot..."
+                        ></textarea>
+                        <div id="currentPromptStatus" class="text-xs text-gray-500 mt-1">Staging area - no effect until inserted</div>
+                    </div>
+                </div>
+
+                <!-- Bottom row: Input (full width) -->
+                <div>
+                    <div class="flex items-center justify-between mb-2">
+                        <label class="block text-sm font-medium text-gray-800 dark:text-gray-200">📝 Current Input</label>
+                        <div class="flex space-x-1">
+                            <button 
+                                id="loadRandomInput"
+                                class="px-2 py-1 bg-green-600 text-white rounded hover:bg-green-700 transition-colors text-xs opacity-50"
+                                title="Load Random Input from Bank 2"
+                                disabled
+                            >
+                                🎲 Random
+                            </button>
+                            <button 
+                                id="loadSpecificInput"
+                                class="px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors text-xs opacity-50"
+                                title="Load Specific Input by ID"
+                                disabled
+                            >
+                                📂 Load
+                            </button>
+                        </div>
+                    </div>
+                    <textarea 
+                        id="currentInput" 
+                        class="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-base resize-vertical"
+                        rows="6"
+                        placeholder="Current input material will appear here after loading from Bank 2..."
+                    ></textarea>
+                    <div id="currentInputStatus" class="text-xs text-gray-500 mt-1">No input selected</div>
+                </div>
+            </div>
+
+            <!-- Preview & Log Section -->
+            <div class="mb-6 p-6 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg border border-yellow-200 dark:border-yellow-800">
+                <h3 class="font-semibold mb-4 text-yellow-800 dark:text-yellow-200 text-lg">📋 Engine Preview & Processing Log</h3>
+                
+                <!-- Engine Description -->
+                <div id="engineDescription" class="mb-4 p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 hidden">
+                    <h4 class="font-medium text-gray-800 dark:text-gray-200 mb-2">🎯 Generated Engine Description</h4>
+                    <div id="engineDescriptionContent" class="prose dark:prose-invert max-w-none text-sm"></div>
+                </div>
+
+                <!-- Banks Preview -->
+                <div id="banksPreview" class="mb-4 grid grid-cols-1 lg:grid-cols-3 gap-4 hidden">
+                    <div class="bg-white dark:bg-gray-800 p-3 rounded border border-gray-200 dark:border-gray-700">
+                        <h5 class="font-medium text-xs text-gray-600 dark:text-gray-400 mb-2">🔑 Keys Preview</h5>
+                        <pre id="keysPreview" class="text-xs text-gray-700 dark:text-gray-300 max-h-40 overflow-y-auto whitespace-pre-wrap"></pre>
+                    </div>
+                    <div class="bg-white dark:bg-gray-800 p-3 rounded border border-gray-200 dark:border-gray-700">
+                        <h5 class="font-medium text-xs text-gray-600 dark:text-gray-400 mb-2">📝 Input Preview</h5>
+                        <pre id="inputPreview" class="text-xs text-gray-700 dark:text-gray-300 max-h-40 overflow-y-auto whitespace-pre-wrap"></pre>
+                    </div>
+                    <div class="bg-white dark:bg-gray-800 p-3 rounded border border-gray-200 dark:border-gray-700">
+                        <h5 class="font-medium text-xs text-gray-600 dark:text-gray-400 mb-2">⚡ Prompts Preview</h5>
+                        <pre id="promptsPreview" class="text-xs text-gray-700 dark:text-gray-300 max-h-40 overflow-y-auto whitespace-pre-wrap"></pre>
+                    </div>
+                </div>
+
+                <!-- Processing Log -->
+                <div class="border-t border-yellow-200 dark:border-yellow-700 pt-4">
+                    <button id="toggleLog" class="flex items-center justify-between w-full text-left" onclick="toggleProcessingLog()">
+                        <span class="font-medium text-yellow-800 dark:text-yellow-200">📜 Processing Log</span>
+                        <span id="logToggleIcon" class="text-yellow-600 dark:text-yellow-400">▼</span>
+                    </button>
+                    <div id="processingLog" class="mt-3 hidden">
+                        <div id="processingLogContent" class="bg-white dark:bg-gray-800 p-4 rounded border border-gray-200 dark:border-gray-700 max-h-96 overflow-y-auto">
+                            <p class="text-sm text-gray-500 italic">No processing log yet...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Page 2: Execution & Results -->
+        <div id="page-execution" class="page-content hidden">
+            <div class="flex items-center justify-between mb-6">
+                <h2 class="text-xl font-semibold">⚡ Execution & Results</h2>
+                <button 
+                    class="px-4 py-2 bg-[#5D5CDE] text-white rounded-lg hover:bg-purple-700 transition-colors font-medium"
+                    onclick="downloadFlow()"
+                    title="Download Complete Flow"
+                >
+                    📥 Download Flow
+                </button>
+            </div>
+
+
+            <div class="space-y-6">
+                <!-- Bot 1 Results -->
+                <div id="bot1Container" class="bot-container bg-blue-50 dark:bg-blue-900/20 rounded-lg p-6">
+                    <h3 class="text-lg font-semibold flex items-center justify-between mb-3">
+                        <div class="flex items-center">
+                            <span class="w-8 h-8 bg-blue-500 text-white rounded-full flex items-center justify-center text-sm mr-3">1</span>
+                            🤖 Bot 1
+                            <div class="ml-4 flex items-center space-x-2">
+                                <select id="bot1Model" class="px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-xs">
+                                </select>
+                            </div>
+                        </div>
+                        <div class="flex space-x-1">
+                            <button class="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors text-xs relative" onclick="executeBot(1)">
+                                <span id="executeBot1Text">▶️ Run</span>
+                                <div id="executeBot1Spinner" class="hidden absolute inset-0 flex items-center justify-center">
+                                    <div class="animate-spin rounded-full h-3 w-3 border-2 border-white border-t-transparent"></div>
+                                </div>
+                            </button>
+                            <button class="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" title="Copy to Clipboard" onclick="copyBotOutput(1)">📋</button>
+                            <button class="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" title="Download as Markdown" onclick="downloadBotOutput(1)">💾</button>
+                            <button class="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" title="Clear Output" onclick="clearBotOutput(1)">🗑️</button>
+                        </div>
+                    </h3>
+                    <div id="bot1PromptStatus" class="text-xs text-gray-500 mb-2">No prompt loaded</div>
+                    <div id="bot1Status" class="text-sm text-gray-600 dark:text-gray-400 mb-2"></div>
+                    <div id="bot1Output" class="prose dark:prose-invert max-w-none bg-white dark:bg-gray-800 p-4 rounded border min-h-[50px] max-h-[600px] overflow-y-auto"></div>
+                </div>
+
+                <!-- Bot 2 Results -->
+                <div id="bot2Container" class="bot-container bg-green-50 dark:bg-green-900/20 rounded-lg p-6">
+                    <h3 class="text-lg font-semibold flex items-center justify-between mb-3">
+                        <div class="flex items-center">
+                            <span class="w-8 h-8 bg-green-500 text-white rounded-full flex items-center justify-center text-sm mr-3">2</span>
+                            🤖 Bot 2
+                            <div class="ml-4 flex items-center space-x-2">
+                                <select id="bot2Model" class="px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-xs">
+                                </select>
+                            </div>
+                        </div>
+                        <div class="flex space-x-1">
+                            <button class="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 transition-colors text-xs relative" onclick="executeBot(2)">
+                                <span id="executeBot2Text">▶️ Run</span>
+                                <div id="executeBot2Spinner" class="hidden absolute inset-0 flex items-center justify-center">
+                                    <div class="animate-spin rounded-full h-3 w-3 border-2 border-white border-t-transparent"></div>
+                                </div>
+                            </button>
+                            <button class="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" title="Copy to Clipboard" onclick="copyBotOutput(2)">📋</button>
+                            <button class="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" title="Download as Markdown" onclick="downloadBotOutput(2)">💾</button>
+                            <button class="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" title="Clear Output" onclick="clearBotOutput(2)">🗑️</button>
+                        </div>
+                    </h3>
+                    <div id="bot2PromptStatus" class="text-xs text-gray-500 mb-2">No prompt loaded</div>
+                    <div id="bot2Status" class="text-sm text-gray-600 dark:text-gray-400 mb-2"></div>
+                    <div id="bot2Output" class="prose dark:prose-invert max-w-none bg-white dark:bg-gray-800 p-4 rounded border min-h-[50px] max-h-[600px] overflow-y-auto"></div>
+                </div>
+
+                <!-- Bot 3 Results -->
+                <div id="bot3Container" class="bot-container bg-purple-50 dark:bg-purple-900/20 rounded-lg p-6">
+                    <h3 class="text-lg font-semibold flex items-center justify-between mb-3">
+                        <div class="flex items-center">
+                            <span class="w-8 h-8 bg-purple-500 text-white rounded-full flex items-center justify-center text-sm mr-3">3</span>
+                            🤖 Bot 3
+                            <div class="ml-4 flex items-center space-x-2">
+                                <select id="bot3Model" class="px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-xs">
+                                </select>
+                            </div>
+                        </div>
+                        <div class="flex space-x-1">
+                            <button class="px-3 py-1 bg-purple-600 text-white rounded hover:bg-purple-700 transition-colors text-xs relative" onclick="executeBot(3)">
+                                <span id="executeBot3Text">▶️ Run</span>
+                                <div id="executeBot3Spinner" class="hidden absolute inset-0 flex items-center justify-center">
+                                    <div class="animate-spin rounded-full h-3 w-3 border-2 border-white border-t-transparent"></div>
+                                </div>
+                            </button>
+                            <button class="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" title="Copy to Clipboard" onclick="copyBotOutput(3)">📋</button>
+                            <button class="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" title="Download as Markdown" onclick="downloadBotOutput(3)">💾</button>
+                            <button class="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" title="Clear Output" onclick="clearBotOutput(3)">🗑️</button>
+                        </div>
+                    </h3>
+                    <div id="bot3PromptStatus" class="text-xs text-gray-500 mb-2">No prompt loaded</div>
+                    <div id="bot3Status" class="text-sm text-gray-600 dark:text-gray-400 mb-2"></div>
+                    <div id="bot3Output" class="prose dark:prose-invert max-w-none bg-white dark:bg-gray-800 p-4 rounded border min-h-[50px] max-h-[600px] overflow-y-auto"></div>
+                </div>
+
+                <!-- Bot 4 Results -->
+                <div id="bot4Container" class="bot-container bg-red-50 dark:bg-red-900/20 rounded-lg p-6">
+                    <h3 class="text-lg font-semibold flex items-center justify-between mb-3">
+                        <div class="flex items-center">
+                            <span class="w-8 h-8 bg-red-500 text-white rounded-full flex items-center justify-center text-sm mr-3">4</span>
+                            🤖 Bot 4
+                            <div class="ml-4 flex items-center space-x-2">
+                                <select id="bot4Model" class="px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-xs">
+                                </select>
+                            </div>
+                        </div>
+                        <div class="flex space-x-1">
+                            <button class="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700 transition-colors text-xs relative" onclick="executeBot(4)">
+                                <span id="executeBot4Text">▶️ Run</span>
+                                <div id="executeBot4Spinner" class="hidden absolute inset-0 flex items-center justify-center">
+                                    <div class="animate-spin rounded-full h-3 w-3 border-2 border-white border-t-transparent"></div>
+                                </div>
+                            </button>
+                            <button class="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" title="Copy to Clipboard" onclick="copyBotOutput(4)">📋</button>
+                            <button class="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" title="Download as Markdown" onclick="downloadBotOutput(4)">💾</button>
+                            <button class="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" title="Clear Output" onclick="clearBotOutput(4)">🗑️</button>
+                        </div>
+                    </h3>
+                    <div id="bot4PromptStatus" class="text-xs text-gray-500 mb-2">No prompt loaded</div>
+                    <div id="bot4Status" class="text-sm text-gray-600 dark:text-gray-400 mb-2"></div>
+                    <div id="bot4Output" class="prose dark:prose-invert max-w-none bg-white dark:bg-gray-800 p-4 rounded border min-h-[50px] max-h-[600px] overflow-y-auto"></div>
+                </div>
+
+                <!-- Bot 5 Results -->
+                <div id="bot5Container" class="bot-container bg-teal-50 dark:bg-teal-900/20 rounded-lg p-6">
+                    <h3 class="text-lg font-semibold flex items-center justify-between mb-3">
+                        <div class="flex items-center">
+                            <span class="w-8 h-8 bg-teal-500 text-white rounded-full flex items-center justify-center text-sm mr-3">5</span>
+                            🤖 Bot 5
+                            <div class="ml-4 flex items-center space-x-2">
+                                <select id="bot5Model" class="px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-xs">
+                                </select>
+                            </div>
+                        </div>
+                        <div class="flex space-x-1">
+                            <button class="px-3 py-1 bg-teal-600 text-white rounded hover:bg-teal-700 transition-colors text-xs relative" onclick="executeBot(5)">
+                                <span id="executeBot5Text">▶️ Run</span>
+                                <div id="executeBot5Spinner" class="hidden absolute inset-0 flex items-center justify-center">
+                                    <div class="animate-spin rounded-full h-3 w-3 border-2 border-white border-t-transparent"></div>
+                                </div>
+                            </button>
+                            <button class="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" title="Copy to Clipboard" onclick="copyBotOutput(5)">📋</button>
+                            <button class="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" title="Download as Markdown" onclick="downloadBotOutput(5)">💾</button>
+                            <button class="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" title="Clear Output" onclick="clearBotOutput(5)">🗑️</button>
+                        </div>
+                    </h3>
+                    <div id="bot5PromptStatus" class="text-xs text-gray-500 mb-2">No prompt loaded</div>
+                    <div id="bot5Status" class="text-sm text-gray-600 dark:text-gray-400 mb-2"></div>
+                    <div id="bot5Output" class="prose dark:prose-invert max-w-none bg-white dark:bg-gray-800 p-4 rounded border min-h-[50px] max-h-[600px] overflow-y-auto"></div>
+                </div>
+
+                <!-- Bot 6 Results -->
+                <div id="bot6Container" class="bot-container bg-indigo-50 dark:bg-indigo-900/20 rounded-lg p-6">
+                    <h3 class="text-lg font-semibold flex items-center justify-between mb-3">
+                        <div class="flex items-center">
+                            <span class="w-8 h-8 bg-indigo-500 text-white rounded-full flex items-center justify-center text-sm mr-3">6</span>
+                            🤖 Bot 6
+                            <div class="ml-4 flex items-center space-x-2">
+                                <select id="bot6Model" class="px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-xs">
+                                </select>
+                            </div>
+                        </div>
+                        <div class="flex space-x-1">
+                            <button class="px-3 py-1 bg-indigo-600 text-white rounded hover:bg-indigo-700 transition-colors text-xs relative" onclick="executeBot(6)">
+                                <span id="executeBot6Text">▶️ Run</span>
+                                <div id="executeBot6Spinner" class="hidden absolute inset-0 flex items-center justify-center">
+                                    <div class="animate-spin rounded-full h-3 w-3 border-2 border-white border-t-transparent"></div>
+                                </div>
+                            </button>
+                            <button class="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" title="Copy to Clipboard" onclick="copyBotOutput(6)">📋</button>
+                            <button class="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" title="Download as Markdown" onclick="downloadBotOutput(6)">💾</button>
+                            <button class="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" title="Clear Output" onclick="clearBotOutput(6)">🗑️</button>
+                        </div>
+                    </h3>
+                    <div id="bot6PromptStatus" class="text-xs text-gray-500 mb-2">No prompt loaded</div>
+                    <div id="bot6Status" class="text-sm text-gray-600 dark:text-gray-400 mb-2"></div>
+                    <div id="bot6Output" class="prose dark:prose-invert max-w-none bg-white dark:bg-gray-800 p-4 rounded border min-h-[50px] max-h-[600px] overflow-y-auto"></div>
+                </div>
+
+                <!-- Bot 7 Results -->
+                <div id="bot7Container" class="bot-container bg-orange-50 dark:bg-orange-900/20 rounded-lg p-6 hidden">
+                    <h3 class="text-lg font-semibold flex items-center justify-between mb-3">
+                        <div class="flex items-center">
+                            <span class="w-8 h-8 bg-orange-500 text-white rounded-full flex items-center justify-center text-sm mr-3">7</span>
+                            🤖 Bot 7
+                            <div class="ml-4 flex items-center space-x-2">
+                                <select id="bot7Model" class="px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-xs">
+                                </select>
+                            </div>
+                        </div>
+                        <div class="flex space-x-1">
+                            <button class="px-3 py-1 bg-orange-600 text-white rounded hover:bg-orange-700 transition-colors text-xs relative" onclick="executeBot(7)">
+                                <span id="executeBot7Text">▶️ Run</span>
+                                <div id="executeBot7Spinner" class="hidden absolute inset-0 flex items-center justify-center">
+                                    <div class="animate-spin rounded-full h-3 w-3 border-2 border-white border-t-transparent"></div>
+                                </div>
+                            </button>
+                            <button class="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" title="Copy to Clipboard" onclick="copyBotOutput(7)">📋</button>
+                            <button class="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" title="Download as Markdown" onclick="downloadBotOutput(7)">💾</button>
+                            <button class="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" title="Clear Output" onclick="clearBotOutput(7)">🗑️</button>
+                        </div>
+                    </h3>
+                    <div id="bot7PromptStatus" class="text-xs text-gray-500 mb-2">No prompt loaded</div>
+                    <div id="bot7Status" class="text-sm text-gray-600 dark:text-gray-400 mb-2"></div>
+                    <div id="bot7Output" class="prose dark:prose-invert max-w-none bg-white dark:bg-gray-800 p-4 rounded border min-h-[50px] max-h-[600px] overflow-y-auto"></div>
+                </div>
+
+                <!-- Bot 8 Results -->
+                <div id="bot8Container" class="bot-container bg-pink-50 dark:bg-pink-900/20 rounded-lg p-6 hidden">
+                    <h3 class="text-lg font-semibold flex items-center justify-between mb-3">
+                        <div class="flex items-center">
+                            <span class="w-8 h-8 bg-pink-500 text-white rounded-full flex items-center justify-center text-sm mr-3">8</span>
+                            🤖 Bot 8
+                            <div class="ml-4 flex items-center space-x-2">
+                                <select id="bot8Model" class="px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-xs">
+                                </select>
+                            </div>
+                        </div>
+                        <div class="flex space-x-1">
+                            <button class="px-3 py-1 bg-pink-600 text-white rounded hover:bg-pink-700 transition-colors text-xs relative" onclick="executeBot(8)">
+                                <span id="executeBot8Text">▶️ Run</span>
+                                <div id="executeBot8Spinner" class="hidden absolute inset-0 flex items-center justify-center">
+                                    <div class="animate-spin rounded-full h-3 w-3 border-2 border-white border-t-transparent"></div>
+                                </div>
+                            </button>
+                            <button class="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" title="Copy to Clipboard" onclick="copyBotOutput(8)">📋</button>
+                            <button class="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" title="Download as Markdown" onclick="downloadBotOutput(8)">💾</button>
+                            <button class="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" title="Clear Output" onclick="clearBotOutput(8)">🗑️</button>
+                        </div>
+                    </h3>
+                    <div id="bot8PromptStatus" class="text-xs text-gray-500 mb-2">No prompt loaded</div>
+                    <div id="bot8Status" class="text-sm text-gray-600 dark:text-gray-400 mb-2"></div>
+                    <div id="bot8Output" class="prose dark:prose-invert max-w-none bg-white dark:bg-gray-800 p-4 rounded border min-h-[50px] max-h-[600px] overflow-y-auto"></div>
+                </div>
+
+                <!-- Bot 9 Results -->
+                <div id="bot9Container" class="bot-container bg-cyan-50 dark:bg-cyan-900/20 rounded-lg p-6 hidden">
+                    <h3 class="text-lg font-semibold flex items-center justify-between mb-3">
+                        <div class="flex items-center">
+                            <span class="w-8 h-8 bg-cyan-500 text-white rounded-full flex items-center justify-center text-sm mr-3">9</span>
+                            🤖 Bot 9
+                            <div class="ml-4 flex items-center space-x-2">
+                                <select id="bot9Model" class="px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-xs">
+                                </select>
+                            </div>
+                        </div>
+                        <div class="flex space-x-1">
+                            <button class="px-3 py-1 bg-cyan-600 text-white rounded hover:bg-cyan-700 transition-colors text-xs relative" onclick="executeBot(9)">
+                                <span id="executeBot9Text">▶️ Run</span>
+                                <div id="executeBot9Spinner" class="hidden absolute inset-0 flex items-center justify-center">
+                                    <div class="animate-spin rounded-full h-3 w-3 border-2 border-white border-t-transparent"></div>
+                                </div>
+                            </button>
+                            <button class="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" title="Copy to Clipboard" onclick="copyBotOutput(9)">📋</button>
+                            <button class="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" title="Download as Markdown" onclick="downloadBotOutput(9)">💾</button>
+                            <button class="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" title="Clear Output" onclick="clearBotOutput(9)">🗑️</button>
+                        </div>
+                    </h3>
+                    <div id="bot9PromptStatus" class="text-xs text-gray-500 mb-2">No prompt loaded</div>
+                    <div id="bot9Status" class="text-sm text-gray-600 dark:text-gray-400 mb-2"></div>
+                    <div id="bot9Output" class="prose dark:prose-invert max-w-none bg-white dark:bg-gray-800 p-4 rounded border min-h-[50px] max-h-[600px] overflow-y-auto"></div>
+                </div>
+
+                <!-- Bot 10 Results -->
+                <div id="bot10Container" class="bot-container bg-amber-50 dark:bg-amber-900/20 rounded-lg p-6 hidden">
+                    <h3 class="text-lg font-semibold flex items-center justify-between mb-3">
+                        <div class="flex items-center">
+                            <span class="w-8 h-8 bg-amber-500 text-white rounded-full flex items-center justify-center text-sm mr-3">10</span>
+                            🤖 Bot 10
+                            <div class="ml-4 flex items-center space-x-2">
+                                <select id="bot10Model" class="px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-xs">
+                                </select>
+                            </div>
+                        </div>
+                        <div class="flex space-x-1">
+                            <button class="px-3 py-1 bg-amber-600 text-white rounded hover:bg-amber-700 transition-colors text-xs relative" onclick="executeBot(10)">
+                                <span id="executeBot10Text">▶️ Run</span>
+                                <div id="executeBot10Spinner" class="hidden absolute inset-0 flex items-center justify-center">
+                                    <div class="animate-spin rounded-full h-3 w-3 border-2 border-white border-t-transparent"></div>
+                                </div>
+                            </button>
+                            <button class="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" title="Copy to Clipboard" onclick="copyBotOutput(10)">📋</button>
+                            <button class="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" title="Download as Markdown" onclick="downloadBotOutput(10)">💾</button>
+                            <button class="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" title="Clear Output" onclick="clearBotOutput(10)">🗑️</button>
+                        </div>
+                    </h3>
+                    <div id="bot10PromptStatus" class="text-xs text-gray-500 mb-2">No prompt loaded</div>
+                    <div id="bot10Status" class="text-sm text-gray-600 dark:text-gray-400 mb-2"></div>
+                    <div id="bot10Output" class="prose dark:prose-invert max-w-none bg-white dark:bg-gray-800 p-4 rounded border min-h-[50px] max-h-[600px] overflow-y-auto"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
+
+

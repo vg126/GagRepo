@@ -1,0 +1,50 @@
+Category,Prompt Point,Strategic Use,Supporting Quote,Bot Type
+Core Prompt Construction,Plain-text instructions,Foundation of bot behavior - your main weapon,"behavior is specified using plain-text instructions",Prompt Bot
+Core Prompt Construction,Model selection,"Choose base intelligence (Claude, GPT-4o, Llama)","built on top of existing models","Prompt Bot, Server Bot"
+Core Prompt Construction,Prompt input,System message defining core behavior,"Describe what your bot should do",Prompt Bot
+Core Prompt Construction,Templating with {{user_prompt}},Control exact placement of user input in prompts,"specify a `{{user_prompt}}` in either of the style prompts",Prompt Bot
+Core Prompt Construction,Style prompt,Pre-define output characteristics for consistency,"style prompt should describe the desired image",Prompt Bot
+Knowledge & Context Enhancement,Knowledge base files,"Add domain expertise via .txt, .pdf, .docx, .html","Major text file formats are supported",Prompt Bot
+Knowledge & Context Enhancement,Knowledge base raw text,Direct text injection without files,"created from uploaded files or raw text input",Prompt Bot
+Knowledge & Context Enhancement,Metadata storage,Persist conversation state across interactions,"yield fp.DataResponse(metadata=json.dumps({}))",Server Bot
+Knowledge & Context Enhancement,Parameter controls,Structured user inputs beyond free text,"add additional input elements to their UI",Server Bot
+Knowledge & Context Enhancement,Bot calling,Leverage other bots' capabilities within yours,"Server bots can call any other bot",Server Bot
+Response Behavior Modifiers,Temperature,Control creativity vs consistency (0.0-2.0),"Higher temperatures introduce more randomness","Prompt Bot, Server Bot"
+Response Behavior Modifiers,stop_sequences,Define precise response termination points,"sequences that stop model text generation",Server Bot
+Response Behavior Modifiers,logit_bias,Boost/suppress specific tokens in generation,"Apply bias to specific tokens",Server Bot
+Response Behavior Modifiers,skip_system_prompt,Disable system prompting for raw responses,"Whether to use any system prompting",Server Bot
+Response Behavior Modifiers,enforce_author_role_alternation,Force user/bot message structure,"concatenate messages so they follow role alternation",Server Bot
+Output Formatting & Presentation,Render markdown content,Toggle markdown vs plain text display,"messages rendered using Markdown",Prompt Bot
+Output Formatting & Presentation,Cite sources toggle,Enable inline citation UI elements,"enable citation UI elements for your bot",Prompt Bot
+Output Formatting & Presentation,content_type in meta,Force markdown/plain rendering per response,"text/markdown, response is rendered as Markdown",Server Bot
+Output Formatting & Presentation,linkify in meta,Control automatic URL detection,"""linkify"": true",Server Bot
+Output Formatting & Presentation,HTML code block rendering,Display interactive HTML with preview,"code block content must begin with `<html>`",Server Bot
+Output Formatting & Presentation,Inline HTML rendering,Direct HTML without code display,"HTML block rendered without displaying code",Server Bot
+Output Formatting & Presentation,iframe embedding,Embed external content seamlessly,"iframe will be rendered",Server Bot
+Interactive Elements,Suggest replies,Guide conversation flow with LLM suggestions,"LLM-generated reply options after responses","Prompt Bot, Server Bot"
+Interactive Elements,Greeting message,Set initial context/expectations,"message bot starts with when users land","Prompt Bot, Server Bot"
+Interactive Elements,Parameter controls UI,"Add sliders, toggles, dropdowns for structured input","text_field, slider, toggle_switch, drop_down",Server Bot
+Interactive Elements,Condition control,Dynamic UI based on user selections,"dynamically hide or show other Controls",Server Bot
+Interactive Elements,Chat interaction,Canvas apps can modify chat interface,"canvas apps can interact with the chat",Canvas App
+Advanced Prompt Engineering,Negative prompt (--no),Exclude unwanted elements in generation,"indicate elements that should be avoided",Prompt Bot
+Advanced Prompt Engineering,Tools parameter,OpenAI function calling for structured operations,"Define OpenAI function calling tools",Server Bot
+Advanced Prompt Engineering,tool_executables,Actual functions for tool execution,"Provide actual Python functions",Server Bot
+Advanced Prompt Engineering,enable_image_comprehension,Convert images to text for non-multimodal models,"converts images into text prompts",Server Bot
+Advanced Prompt Engineering,expand_text_attachments,Auto-parse text files into prompt content,"parse text files and send their content",Server Bot
+Multi-Bot & Integration,enable_multi_bot_chat_prompting,Allow @-mentioning other bots in chat,"support @-mentioning other bots",Server Bot
+Multi-Bot & Integration,server_bot_dependencies,Declare bot usage limits and dependencies,"declare your bot dependencies",Server Bot
+Multi-Bot & Integration,Bot selection in messages,Choose specific bots for different tasks,"send a message to @Claude-3.5-Sonnet",Canvas App
+Multi-Bot & Integration,sendUserMessage,Programmatically trigger bot interactions,"Message text sent to bots",Canvas App
+Response Streaming & Handling,stream parameter,Real-time vs complete response delivery,"invoke handler with incomplete results",Canvas App
+Response Streaming & Handling,handler parameter,Custom callback functions for responses,"name of handler function to invoke",Canvas App
+Response Streaming & Handling,handlerContext parameter,Pass additional data to handlers,"additional context to pass to handler",Canvas App
+Response Streaming & Handling,registerHandler function,Set up response processing pipelines,"Registers callback function to results",Canvas App
+File & Media Handling,File attachment upload,Add files to bot queries,"attachment = await fp.upload_file","Server Bot, External Application"
+File & Media Handling,post_message_attachment,Send files with bot responses,"send file attachments with bot response",Server Bot
+File & Media Handling,attachments parameter,Include files in messages,"Files to include in the user message","Canvas App, External Application"
+File & Media Handling,allow_attachments,Enable file uploads from users,"allow Poe users to send files",Server Bot
+File & Media Handling,Markdown image syntax,Embed images directly in responses,"![](image_url)","Prompt Bot, Server Bot"
+Cost & Optimization Controls,Optimize prompt for Previews,Special instructions for React/HTML generation,"optimize generating interactive web applications",Prompt Bot
+Cost & Optimization Controls,authorize_cost,Reserve compute points before expensive ops,"Reserve potential costs before providing service",Server Bot
+Cost & Optimization Controls,capture_cost,Charge users for services rendered,"Actually charge the user after providing",Server Bot
+Cost & Optimization Controls,rate_card setting,Explain pricing to users,"explain your pricing structure",Server Bot
